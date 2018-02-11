@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Android Controller</title>
+    </head>
+    <body>
+    	<button id="big">720X1280</button>
+    	<button id="small">360X640</button>
+    	<button id="rotate">旋转</button>
+		<br/>
+        <canvas id="screen">
+			Your browser does not support the HTML5 canvas tag.
+		</canvas>
+		<br/>
+		<button id="menu">menu</button>
+		<button id="home">home</button>
+		<button id="back">back</button>
+		<br/>
+		<table id="view_table" border="1">
+			<tr>
+				<th>view id</th>
+				<th>view type</th>
+				<th>view text</th>
+				<td>view value</td>
+				<th>screen name</th>
+				<th>screen title</th>
+			</tr>
+		</table>
+		<br/>
+		<table id="app_table" border="1">
+			<tr>
+				<th>event</th>
+			</tr>
+		</table>
+		<br/>
+		<table id="page_table" border="1">
+			<tr>
+				<th>event</th>
+				<th>screen name</th>
+				<th>screen title</th>
+			</tr>
+		</table>
+    </body>
+    <script>
+
+    var ws = new WebSocket('ws://localhost:56789');
+    var initScreenWidth = 360;
+    var initScreenHeight = 640;
+    var initRotate = 0;
+    var screen = document.getElementById('screen');
+    var ctx = screen.getContext("2d");
+    var shouldSendMoveEvent = false;
+	var CODE_IMAGE = 0x01;
+	var CODE_CHECK_POINT = 0x02;
+
+	String.prototype.format = function(args) {
+    	var result = this;
+    	if (arguments.length > 0) {    
+       		if (arguments.length == 1 && typeof (args) == "object") {
+            	for (var key in args) {
+                	if(args[key] != undefined){
+                    	var reg = new RegExp("({" + key + "})", "g");
+                    	result = result.replace(reg, args[key]);
+                	}
+            	}
+        	}
+        	else {
+            	for (var i = 0; i < arguments.length; i++) {
+                	if (arguments[i] != undefined) {
+                    	var reg = new RegExp("({[" + i + "]})", "g");
+                    	result = result.replace(reg, arguments[i]);
+                	}
+            	}
+        	}
+   		}
+    	return result;
+	}	
+
+    ws.onopen = function(event) {
+    	resizePicture();
+    };
+    ws.onmessage = function(event) {
+
+		var fileReader = new FileReader();
+		fileReader.onload = function() {
+			var result = new Uint8Array(this.result);
+			var type = result[0];
+			var data = event.data.slice(1, event.data.size);
+			if (type == CODE_IMAGE) {
+				handleImage(data);
+			} else if (type == CODE_CHECK_POINT) {
+				handleCheckPoint(data);
+			}
+		}
+
+		fileReader.readAsArrayBuffer(event.data);
+		fileReader.result;
+    };
+
+	function handleImage(data) {
+		var blob  = new Blob([data], {type: "image/jpg"});
+  		var img = new Image();
+		img.onload = function (e) {
+			ctx.drawImage(img, 0, 0);
+			window.URL.revokeObjectURL(img.src);    
+			img = null;
+		};
+		img.onerror = img.onabort = function (e) {    
+			img = null;
+		};
+		img.src = window.URL.createObjectURL(blob);	
+	}
+
+	var EVENT_VIEW = 0x01;
+	var EVENT_PAGE = 0x02;
+	var EVENT_APP = 0x04;
+	function handleCheckPoint(data) {
+		var blob  = new Blob([data], {type: "plain/text"});
+		var fileReader = new FileReader();
+		fileReader.onload = function() {
+			var json = JSON.parse(this.result);
+			if (!json) {
+				return;
+			}
+
+			switch(json["type"]) {
+				case EVENT_VIEW:
+					handleViewEvent(json);
+					break;
+				case EVENT_PAGE:
+					handlePageEvent(json);
+					break;
+				case EVENT_APP:
+					handleAppEvent(json);
+					break;
+			}
+		}
+		fileReader.readAsText(data);
+		fileReader.result;
+	}
+
+	function handleViewEvent(json) {
+		var formatString = "<td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td>";
+		var html = formatString.format(
+			json["viewId"],
+			json["viewType"],
+			json["text"],
+			json["value"],
+			json["screenName"],
+			json["screenTitle"]
+		);
+		var tr = document.createElement("tr");
+		tr.innerHTML = html;
+		var table = document.getElementById('view_table');
+		table.appendChild(tr);
+	}
+
+	function handlePageEvent(json) {
+		var formatString = "<td>{0}</td><td>{1}</td><td>{2}</td>";
+		var event = "进入";
+		switch(json["event"]) {
+			case 0x01:
+				event = "进入";
+				break;
+			case 0x02:
+				event = "退出";
+				break;
+			default:
+				return;
+		}
+
+		var table = document.getElementById('page_table');
+		var tr = document.createElement("tr");
+		var html = formatString.format(
+			event,
+			json["screenName"],
+			json["screenTitle"]
+		)
+		tr.innerHTML = html;
+		table.appendChild(tr);
+	}
+
+	function handleAppEvent(json) {
+		var formatString = "<td>{0}</td>"
+		var tr = document.createElement("tr");
+		switch(json["event"]) {
+			case 0x01:
+				tr.innerHTML = formatString.format("切换到前台");
+				break;
+			case 0x02:
+				tr.innerHTML = formatString.format("切换到后台");
+				break;
+			case 0x04:
+				tr.innerHTML =formatString.format("本次首次使用");
+				break;
+			default:
+				return;
+		}
+		var table = document.getElementById('app_table');
+		table.appendChild(tr);
+	}
+
+    ws.onclose = function(event) {
+    	window.close();
+    };
+    var down = function(event) {
+        shouldSendMoveEvent = true;
+        sendFingerPosition(40, event);
+    };
+    var up = function(event) {
+    	sendFingerPosition(39, event)
+        shouldSendMoveEvent = false;
+    };
+    var move = function(event) {
+        if (shouldSendMoveEvent) {
+        	sendFingerPosition(38, event);
+        }
+    };
+    var sendFingerPosition = function(type, event) {
+    	var x = event.pageX - screen.offsetLeft;
+        var y = event.pageY - screen.offsetTop;
+        var lastX = x;
+        var lastY = y;
+        if (initRotate == 90) {
+        	lastX = y;
+        	lastY = initScreenWidth - x;
+        } else if (initRotate == 180) {
+        	lastX = initScreenWidth - x;
+        	lastY = initScreenHeight - y;
+        } else if (initRotate == 270) {
+        	lastX = initScreenHeight - y;
+        	lastY = x;
+        }
+	
+		var json = '{"type": ' + type + ', "data": { "x": ' + lastX + ', "y": ' + lastY + '}}'
+        ws.send(json);
+    };
+    var heartbeat = function() {
+    	ws.send('{"type":37, "data": null}');
+    };
+
+	
+	var CODE_MENU = 0x01;
+	var CODE_HOME = 0x02;
+	var CODE_BACK = 0x04;
+
+	function back() {
+		sendKeyCode(CODE_BACK);
+	}
+
+	function home() {
+		sendKeyCode(CODE_HOME);
+	}
+
+	function menu() {
+		sendKeyCode(CODE_MENU);
+	}
+
+	function sendKeyCode(code) {
+		ws.send('{"type":35, "data": {"keyCode":'+ code +'}}');
+	}
+
+    var resizeCanvas = function() {
+    	screen.width = initScreenWidth;
+    	screen.height = initScreenHeight;
+    };
+
+    var resizePicture = function() {
+    	if (initScreenWidth <= initScreenHeight) {
+    		ws.send('{"type": 36, "data":{"w":'+initScreenWidth+', "h":'+initScreenHeight+', "r":'+ initRotate+'}}');					
+    	} else {
+    		ws.send('{"type":36, "data":{"w":'+initScreenHeight+', "h":'+initScreenWidth+', "r":'+ initRotate+'}}');
+    	}
+    };
+
+    var buttonHandler = function(e) {
+    	switch(e.target.id) {
+    		case "big":
+    			if (Math.abs(initScreenWidth - initScreenHeight) == 280) {
+    				if (initRotate == 90 || initRotate == 270) {
+    					initScreenWidth = 1280;
+    					initScreenHeight = 720;
+    				} else {
+    					initScreenWidth = 720;
+    					initScreenHeight = 1280;
+    				}
+    				resizePicture();
+    				resizeCanvas();
+    			}
+    			break;
+    		case "small":
+    			if (Math.abs(initScreenWidth - initScreenHeight) == 560) {
+    				if (initRotate == 90 || initRotate == 270) {
+    					initScreenWidth = 640;
+    					initScreenHeight = 360;
+    				} else {
+    					initScreenWidth = 360;
+    					initScreenHeight = 640;
+    				}
+    				resizePicture();
+    				resizeCanvas();
+    			}
+    			break;
+    		case "rotate":
+    			if (initRotate == 270) initRotate = 0;
+    			else initRotate += 90;
+    			var temp = initScreenHeight;
+    			initScreenHeight = initScreenWidth;
+    			initScreenWidth = temp;
+    			resizePicture();
+    			resizeCanvas();
+    			break;
+    	}
+    };
+    resizeCanvas();
+    screen.addEventListener('mousedown', down, false);
+    screen.addEventListener('mouseup', up, false);
+    screen.addEventListener('mousemove', move, false);
+    document.getElementById('big').addEventListener('click', buttonHandler, false);
+    document.getElementById('small').addEventListener('click', buttonHandler, false);
+    document.getElementById('rotate').addEventListener('click', buttonHandler, false);
+	document.getElementById('back').addEventListener('click', back, false);
+	document.getElementById('menu').addEventListener('click', menu, false);
+	document.getElementById('home').addEventListener('click', home, false);
+    setInterval("heartbeat()", 2000);
+    </script>
+</html>
