@@ -1,0 +1,85 @@
+apply plugin: 'com.android.application'
+apply plugin: 'com.shanbay.beaver'
+
+
+import com.shanbay.beaver.data.HookEvent
+import com.shanbay.beaver.data.HookUnit
+import com.shanbay.beaver.data.MethodModifier
+import org.objectweb.asm.MethodVisitor
+import org.objectweb.asm.Opcodes
+import com.shanbay.beaver.misc.Const
+
+beaver {
+    outputModifiedClass true
+    enableLog true
+    includeClasses = ["r:^com.chan.*"]
+    hookUnits = [
+            HookUnit.OnClickedListenerHookUnit,
+            new HookUnit(
+                    new HookEvent("butterknife/internal/DebouncingOnClickListener", Opcodes.ACC_PUBLIC, "doClick", "(Landroid/view/View;)V"),
+                    new MethodModifier() {
+                        @Override
+                        void modify(MethodVisitor mv) {
+                            mv.visitVarInsn(Opcodes.ALOAD, 1)
+                            mv.visitMethodInsn(Opcodes.INVOKESTATIC, Const.SDK_OWNER, "onClick", "(Landroid/view/View;)V", false)
+                        }
+                    }
+            )
+    ]
+}
+
+android {
+    compileSdkVersion 25
+    buildToolsVersion "25.0.2"
+    defaultConfig {
+        applicationId "com.chan.hibeaver"
+        minSdkVersion 16
+        targetSdkVersion 25
+        versionCode 1
+        versionName "1.0"
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+
+        debug {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+
+    dexOptions {
+        jumboMode = true
+        javaMaxHeapSize "4g"
+    }
+
+    lintOptions {
+        abortOnError false
+    }
+
+    aaptOptions {
+        cruncherEnabled false
+    }
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
+        exclude group: 'com.android.support', module: 'support-annotations'
+    })
+    compile project(':beaver')
+    compile project(':demo')
+    compile 'com.android.support:appcompat-v7:25.3.1'
+    compile 'com.jakewharton:butterknife:7.0.1'
+    compile 'com.android.support:design:25.3.1'
+    testCompile 'junit:junit:4.12'
+}
